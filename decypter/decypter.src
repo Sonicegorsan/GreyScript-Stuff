@@ -1,12 +1,14 @@
 //command: decypter
 
-//Стандартная заглушка,требуемая для передачи корректного числа элементов
-if params.len != 1 or params[0] == "-h" or params[0] == "--help" then exit(command_info("decipher_usage"))
-
 //Подключение библиотеки шифровки
 cryptools = include_lib("/lib/crypto.so")
-if not cryptools then include_lib(current_path + "/crypto.so")
-if not cryptools then exit("Error: Missing crypto.so library in the /lib path or the current folder")
+print(include_lib(current_path() + "/crypto.so"))
+if not cryptools then 
+	cryptools = include_lib(current_path() + "/crypto.so")
+end if
+if not cryptools then 
+	exit("Error: Missing crypto.so library in the /lib path or the current folder")
+end if
 
 //Создание функции получения пароля
 GetPassword = function(enycripted_password)
@@ -14,7 +16,45 @@ GetPassword = function(enycripted_password)
 	return password
 end function
 
-origFile = params[0] //Передача имени файла из переданных аргументов в переменную
+
+if params.len == 0 then
+	files_list = [ "passwd", "Mail.txt","Bank.txt" ]
+	file_found = false
+	computer = get_shell.host_computer()
+	//Ищем стандартные файлы в папке исполнения
+	print("Trying to find files in current directory...")
+	for file in files_list
+		if computer.File(file) != null then
+			print("We found file: " + file)
+			file_found = true
+		end if
+	end for
+
+	//Если нашли файлы, просим юзера ввести его имя
+	if file_found == true then
+		origFile = user_input("Enter file name to choose: ")
+	else
+	//Если нет,ищем на рабочем столе
+		print("Trying to find files in desctop directory...")
+		for file in files_list
+			if computer.File(home_dir() + "/Desktop/" +  file) != null then
+				print("We found file: " + file)
+				file_found = true
+			end if
+		end for
+	
+		if file_found == true then
+		origFile = home_dir() + "/Desktop/" + user_input("Enter file name to choose: ")
+		else
+			exit("Cannot find files in execution directory or desktop,exiting...")
+		end if
+		
+	end if
+end if	
+
+if params.len == 1 then
+	origFile = params[0] //Передача имени файла из переданных аргументов в переменную
+end if
 file = get_shell.host_computer.File(origFile)
 if not file then exit("decipher: can't find " + origFile)
 if file.is_binary then exit("decipher: can't read " + origFile + ". Binary file")
@@ -47,7 +87,7 @@ for line in lines
 				print("Can't find password :(")
 				continue
 			end if
-			print(line_counter+")"+user_name+":"+password)
+			print(line_counter+")"+user_name+"@"+password)
 			line_counter=line_counter + 1
 	end if
 end for
