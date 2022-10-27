@@ -1,0 +1,338 @@
+//command scanlib
+
+//Инициализация класса уязвимость
+Vulnerability = { "memory_address":null,"variable_name":null,"type":null }
+
+Vulnerability.get_data = function()
+	return "<color=orange><b>"+typeof(self.type)+"</b></color>" + " " + self.memory_address + " " + self.variable_name 
+end function
+
+//Инициализация функций
+
+//Функция Подключения библиотеки metaxploit
+load_metaxploit = function()
+	metaxploit = include_lib("/lib/metaxploit.so")
+	if not metaxploit then 
+		metaxploit = include_lib(current_path + "/metaxploit.so")
+	end if
+	if not metaxploit then exit("Error: Missing metaxploit library")
+	return metaxploit
+end function
+
+//Информация о сканируемой библиотеке
+display_library_data = function(metaLib)
+	print("Scan library data.\nName: " + metaLib.lib_name + "\nVersion: " + metaLib.version)
+end function
+
+//Обработчик уязвимостей типа "File"
+handle_file_payload = function(file)
+	show_file_info = function()
+		show_condition = function(condition)
+			if condition then return "<color=green><b>True</b></color>"
+			if not condition then return "<color=red><b>False</b></color>"
+		end function
+		print("Binary: " + show_condition(file.is_binary))
+		print("Folder: " + show_condition(file.is_folder))
+		print("Path: " + file.path)
+	end function
+	
+	action_index = function(user_action)
+		if user_action == "help" then return 1
+		if user_action == "content" then return 2
+		if user_action == "delete" then return 3
+		if user_action == "file_show" then return 4
+		return null
+	end function
+
+	help = function()
+		print( "help - show this message" )
+		print( "content - show file content (files if folder/content if file)")
+		print( "delete - delete file")
+		print( "exit - exit file payload")
+	end function
+
+	content = function()
+		if not file.has_permission("r") then 
+			print("You don't have access to this file")
+			return null
+		end if
+		if not file.is_folder and not file.is_binary then 
+			print(file.get_content)
+			return null
+		else if not file.is_folder and file.is_binary then
+			print("Can't show content of a binary file")
+			return null
+		end if 
+		
+		if file.is_folder then
+			print("Folder contains: ")
+			objects_in_folder = file.get_files
+			objects_in_folder = objects_in_folder + file.get_folders
+			for object in objects_in_folder
+				if not object.is_folder then
+					print("<color=yellow><b>"+object.name+"</color></b>")
+				else
+					print("<color=orange><b>"+object.name+"/</color></b>")
+	end function
+
+	delete = function()
+		if file.has_permission("w") then
+			file.delete
+		else
+			print("You don't have write access to this file")
+		end if
+	end function
+
+	file_show = function(file_path)
+		computer.File(file_path)
+	end function
+
+	action = { 1:@help,2:@content,3:@delete,4:@file_show }
+	
+	show_file_info
+	while true
+		user_action = user_input(file.path + "@File>")
+		if user_action == "exit" then break
+		if file == null then
+			print("File was deleted, now you can only exit")
+			continue
+		end if
+		user_action = user_action.split(" ") 
+		user_action_index = action_index(user_action[0])
+		user_action.pull //Removes argument name and now it is an array of function args
+		if user_action_index != null then
+			if user_action_index == action_index("passwd") and user_action.len == 2 then
+				action[user_action_index](user_action[0],user_action[1])
+			else
+				action[user_action_index]
+			end if
+		else 
+			print("Unknown command, type help for help.")
+		end if
+	end while
+end function
+
+//Обработчик уязвимостей типа "computer"
+handle_computer_payload = function(computer)
+	action_index = function(user_action)
+		if user_action == "help" then return 1
+		if user_action == "ps" then return 2
+		if user_action == "passwd" then return 3
+		if user_action == "file" then return 4
+		return null
+	end function
+
+	help = function()
+		print( "help - show this message" )
+		print( "ps - show all system proceses")
+		print( "passwd [username] [password] - change password (root required)")
+		print( "file [absolute_path_to_file] - gives you the File object with actions interpreter to it")
+		print( "exit - exit computer payload")
+	end function
+
+	ps = function()
+		print(format_columns(computer.show_procs))
+	end function
+
+	passwd = function(user,password)
+		success = computer.change_password(user,password)
+		if success then print("<color=green><b>" + user + " password was successfuly changed to: " + password + "</b></color>")
+		if not success then print("<color=red><b>You don't have root priviliges to do that</b></color>")
+	end function
+
+	file = function(file_path)
+		file = computer.File(file_path)
+		if file != null then
+			handle_file_payload(file)
+		else
+			print("File does not exist.")
+		end if
+	end function
+
+	action = { 1:@help,2:@ps,3:@passwd,4:@file }
+	while true
+		user_action = user_input(computer.public_ip + "@Computer>")
+		if user_action == "exit" then break
+		user_action = user_action.split(" ") 
+		user_action_index = action_index(user_action[0])
+		user_action.pull //Removes argument name and now it is an array of function args
+		if user_action_index != null then
+			if user_action_index == action_index("passwd") then
+				if user_action.len != 2 then
+					print("<color=red><b>Not enough arguments.</b></color>")
+					continue
+				end if
+				action[user_action_index](user_action[0],user_action[1])
+			else if user_action_index == action_index("file") then
+				if user_action.len != 1 then
+					print("<color=red><b>Not enough arguments.</b></color>")
+					continue
+				end if
+				action[user_action_index](user_action[0])
+			else
+				action[user_action_index]
+			end if
+		else 
+			print("Unknown command, type help for help.")
+		end if
+	end while
+end function
+
+handle_payload = function(metaLib,vulnerability)
+	if typeof(vulnerability.type)=="computer" then handle_computer_payload(vulnerability.type)
+    if typeof(vulnerability.type)=="shell" then vulnerability.type.start_terminal
+    if typeof(vulnerability.type)=="file" then handle_file_payload(vulnerability.type)
+    if typeof(vulnerability.type)=="number" then 
+		metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name,user_input("New password:"))
+	end if
+end function
+
+//СТАРТ ПРОГРАММЫ
+if not get_shell.host_computer.is_network_active then exit("No internet access.")
+
+//Подключение библиотеки
+metaxploit = load_metaxploit
+
+//Обработка параметров сканера уязвимостей в сетевых библиотеках
+address = null
+port = null
+
+if params.len > 1 then exit("You need to provide an address of the machine that will be Porthacked. Or start it without params to crack localy.")
+
+if params.len == 1 then
+	if is_valid_ip(params[0]) then
+		address = params[0]
+		isLanIp = is_lan_ip( address )
+		if isLanIp then
+   			router = get_router;
+		else 
+			router = get_router( address )
+		end if
+		if router == null then exit("Ip address not found.")
+		
+		if not isLanIp then
+			ports = router.used_ports
+		else
+			ports = router.device_ports(address)
+		end if
+		if ports == null then exit("Ip address not found")
+		if typeof(ports) == "string" then exit(ports)
+	
+	//Выводим все порты, которые можно взломать
+	info = "PORT STATUS LIBRARY VERSION IP\n"
+	net_session = metaxploit.net_use( address )
+	if not net_session then exit("Ip address not found.")
+	metaLib = net_session.dump_lib
+	info = info + "0: open " + metaLib.lib_name + " " + metaLib.version + " " + address
+	ports_list = [0]
+	for port in ports
+		ports_list.push(port.port_number)
+		port_status = "open"
+		if(port.is_closed and not isLanIp) then
+			port_status = "closed"
+		end if
+		if port_status != "closed" then
+			net_session = metaxploit.net_use( address,port.port_number )
+			if not net_session then 
+				port_status = "firewall"
+				service_info = router.port_info(port)
+			else
+				metaLib = net_session.dump_lib
+				service_info = metaLib.lib_name + " " + metaLib.version
+			end if
+		else
+			service_info = router.port_info(port)
+		end if
+		lan_ips = port.get_lan_ip
+		info = info + "\n" + port.port_number + ": " + port_status + " " + service_info + " " + lan_ips
+	end for
+	//Раскрашиваем вывод доступных для взлома портов
+	info = format_columns(info)
+	for str in info.split(char(10))
+		if str.indexOf("PORT") != null then str = "<color=yellow>"+str+"</color>"
+		if str.indexOf("open") != null then str = str.replace("open","<color=green><b>open</b></color>") 
+		if str.indexOf("firewall") != null then str = str.replace("firewall","<color=orange><b>firewall</b></color>") 
+		if str.indexOf("closed") != null then str = str.replace("closed","<color=red><b>closed</b></color>") 
+		print str
+	end for
+	while true
+		port = user_input("<b>Choose port service to crack: </b>").to_int
+		if ports_list.indexOf(port) != null then
+			break
+		else 
+			print("Port not in list, try again")
+		end if
+	end while
+	else 
+		exit("Incorrect IP address")
+	end if
+end if
+
+
+//Получение снимка библиотеки из сети,либо файла
+if address != null then
+	net_session = metaxploit.net_use( address,port )
+	if not net_session then exit("Error: can't connect to net session")
+	metaLib = net_session.dump_lib
+else
+	local_libraries = [ "kernel_module.so","router_module.so","init.so","net.so","crypto.so","blockchain.so","aptclient.so","metaxploit.so" ]
+	found_libraries = []
+	library_index = 1
+	for library in local_libraries
+		if get_shell.host_computer.File("/lib/" + library) != null then
+			found_libraries.push(library)
+			print(library_index + ": " + library)
+			library_index = library_index + 1
+		end if
+	end for
+	while true
+		lib_name_index = user_input("<b>Choose library index to crack: </b>").to_int
+		if found_libraries.hasIndex(lib_name_index-1) != 0 then break
+	end while
+	libFile = get_shell.host_computer.File("/lib/" + found_libraries[lib_name_index-1])
+	if not libFile then exit("For some reason " + libName + " was not found.")
+	metaLib = metaxploit.load(libFile.path)
+end if
+
+//Даные о библиотеке
+display_library_data metaLib
+
+//Скан и вывод всех уязвимостей
+listMem = metaxploit.scan(metaLib)
+vulnerabilities_list = []
+variables_parsed = 1
+if listMem.len == 0 then exit("Scan completed: No issues detected.")
+for itemMem in listMem
+	scan_data = metaxploit.scan_address(metaLib, itemMem)
+	for string in scan_data.split(char(10))
+		if string.indexOf("Unsafe check") != null and string.indexOf("<")!=null then
+			vulnerability = new Vulnerability
+			vulnerability.memory_address = itemMem
+			vulnerability.variable_name = string[string.indexOf(">")+1:string.indexOf("</")]
+			vulnerability.type = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name)
+			if typeof(vulnerability.type) != "null" then
+				text_color = "<color=green>"
+				vulnerabilities_list.push(vulnerability)
+			else
+				text_color = "<color=red>"
+			end if
+			print(text_color+variables_parsed +": " + vulnerability.memory_address + " " + vulnerability.variable_name + " " + typeof(vulnerability.type)+"</color>\n")
+			variables_parsed = variables_parsed + 1
+		end if 
+	end for
+end for
+
+user_input_value = -1
+while user_input_value != 0
+	print("<color=yellow><b>0: Exit</b></color>")
+	index_value = 1
+	for i in vulnerabilities_list
+		print("<color=green>"+index_value+"</color>" + ": " + i.get_data)
+		index_value = index_value + 1
+	end for
+	user_input_value = user_input("What to do:").to_int
+	if user_input_value != 0 then
+		handle_payload(metaLib,vulnerabilities_list[user_input_value-1])
+	end if
+end while
+
