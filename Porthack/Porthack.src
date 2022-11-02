@@ -1,5 +1,7 @@
 //command scanlib
 
+//PRE CODE INITIALIZATION PART
+//----------------------------------------------------
 //Инициализация класса уязвимость
 Vulnerability = { "memory_address":null,"variable_name":null,"type":null }
 
@@ -19,6 +21,16 @@ load_metaxploit = function()
 	return metaxploit
 end function
 
+//Функция Подключения библиотеки cryptools
+load_cryptools = function()
+	cryptools = include_lib("/lib/crypto.so")
+	if not cryptools then 
+		cryptools = include_lib(current_path + "/crypto.so")
+	end if
+	if not cryptools then exit("Error: Missing crypto library")
+	return cryptools
+end function
+
 //Информация о сканируемой библиотеке
 display_library_data = function(metaLib)
 	print("Scan library data.\nName: " + metaLib.lib_name + "\nVersion: " + metaLib.version)
@@ -26,6 +38,19 @@ end function
 
 //Обработчик уязвимостей типа "File"
 handle_file_payload = function(file)
+	decrypt_file = function(content)
+		info = ""
+		decrypted_strings_index = 1
+		for string in content.split(char(10))
+			split_string = string.split(":")
+			if split_string.len == 2 then
+				info = info + decrypted_strings_index + ")" + split_string[0] + "@" + cryptools.decipher(split_string[1]) + "\n"
+				decrypted_strings_index = decrypted_strings_index + 1
+			end if
+		end for
+		return info
+	end function
+
 	show_file_info = function()
 		show_condition = function(condition)
 			if condition then return "<color=green><b>True</b></color>"
@@ -35,34 +60,36 @@ handle_file_payload = function(file)
 		print("Folder: " + show_condition(file.is_folder))
 		print("Path: " + file.path)
 	end function
+
+	parse_file = function(file_name)
+		files_in_folder = file.get_files
+		for object in files_in_folder
+			if object.name == file_name then return object
+		end for
+		return null
+	end function
 	
 	action_index = function(user_action)
 		if user_action == "help" then return 1
-		if user_action == "content" then return 2
-		if user_action == "delete" then return 3
-		if user_action == "file_show" then return 4
+		if user_action == "ls" then return 2
+		if user_action == "cat" then return 3
+		if user_action == "rm" then return 4
+		if user_action == "cd" then return 5
+		if user_action == "getpass" then return 6
 		return null
 	end function
 
-	help = function()
-		print( "help - show this message" )
-		print( "content - show file content (files if folder/content if file)")
-		print( "delete - delete file")
-		print( "exit - exit file payload")
+	help = function(placeholder)
+		print( "<b>help</b> - show this message" )
+		print( "<b>exit</b> - exit file payload")
+		print( "<b>ls</b> - show file content (files if folder/content if file)")
+		print( "<b>cat (-d optional for decryption) [file]</b> - show file content")
+		print( "<b>rm [file]</b> - delete file")
+		print( "<b>cd [folder]</b> - change currnet file (works with all files)")
+		print( "<b>getpass (-u optional for undecrypted) [mail/bank/passwd]<b> - shows all bank/mail/passwd files in decrypted view")
 	end function
 
-	content = function()
-		if not file.has_permission("r") then 
-			print("You don't have access to this file")
-			return null
-		end if
-		if not file.is_folder and not file.is_binary then 
-			print(file.get_content)
-			return null
-		else if not file.is_folder and file.is_binary then
-			print("Can't show content of a binary file")
-			return null
-		end if 
+	ls = function(placeholder)
 		
 		if file.is_folder then
 			print("Folder contains: ")
@@ -73,25 +100,173 @@ handle_file_payload = function(file)
 					print("<color=yellow><b>"+object.name+"</color></b>")
 				else
 					print("<color=orange><b>"+object.name+"/</color></b>")
+				end if
+			end for
 	end function
-
-	delete = function()
-		if file.has_permission("w") then
-			file.delete
+	
+	cat = function(argv)
+		if argv.len == 0 then
+			print("Not enough arguments")
+			return null
+		end if
+	
+		decrypt = false
+		if argv.len == 1 then
+			target_file = parse_file(argv[0])
+		else if argv.len == 2 and argv[0] == "-d" then
+			decrypt = true
+			target_file = parse_file(argv[1])
+		end if
+		
+		if not target_file then 
+			print("File not found")
+			return null
+		else if not target_file.has_permission("r") then 
+			print("You don't have access to this file")
+			return null
+		else if target_file.is_binary then
+			print("Can't show content of a binary file")
+			return null
+		else if decrypt then 
+			print(decrypt_file(target_file.get_content))
 		else
-			print("You don't have write access to this file")
+			print(target_file.get_content)
 		end if
 	end function
 
-	file_show = function(file_path)
-		computer.File(file_path)
+	rm = function(argv)
+		if argv.len == 0 then
+			print("Not enough arguments")
+			return null
+		else
+			target_file = parse_file(argv[0])
+			if target_file.has_permission("w") then
+				target_file.delete
+			else
+				print("You can't delete this file (Not enough permissions)")
+			end if
+		end if
+	end function
+	
+	cd = function(argv)
+		if argv.len == 0 then
+			print("Not enough arguments")
+			return null
+		end if
+		path = argv[0]
+		if path == ".." and file.path != "/" then			
+			outer.file = file.parent
+			return null
+		else
+			objects_in_folder = file.get_folders
+			for new_file in objects_in_folder
+				if new_file.name == path or (new_file.name + "/") == path or new_file.name[:path.len] == path then
+					outer.file = new_file
+				end if
+			end for
+		end if
+			
 	end function
 
-	action = { 1:@help,2:@content,3:@delete,4:@file_show }
+	getpass = function(argv)
 	
-	show_file_info
+		get_source_directory = function(file)
+			while file.path != "/"
+				file = file.parent
+			end while
+			return file
+		end function
+
+		parse_user_folder = function(file_object,parsing_file_name)
+			for user_folder_content in file_object.get_folders
+				if user_folder_content.name == "Config" then confing_folder = user_folder_content
+			end for
+			for confing_folder_content in confing_folder.get_files
+				if confing_folder_content.name == parsing_file_name then parsed_file = confing_folder_content
+			end for
+			return parsed_file
+		end function	
+
+		decypher = true
+		if argv.len > 2 or (argv[0] == "-u" and argv.len != 2) then 
+			print("Wrong arguments amount")
+			return null
+		else if argv[0] == "-u" and argv.len == 2 then
+				decypher = false
+				argv[0] = argv[1]
+		end if
+		
+		if argv[0] != "mail" and argv[0] != "bank" and argv[0] != "passwd" then
+			print("Wrong argumen name,should be mail/bank/passwd")
+			return null
+		end if
+		if argv[0]=="passwd" then
+			source_directory = get_source_directory(outer.file)
+			for source_dir_folder in source_directory.get_folders
+				if source_dir_folder.name == "etc" then etc_folder = source_dir_folder
+			end for
+			remembered_file = outer.file
+			outer.file = etc_folder //parse_file only works with file that was passed to handler function,so we need to temporary replace our file object with /etc/ folder file object
+			passwd_file = parse_file("passwd")	
+			outer.file = remembered_file
+			if passwd_file.get_content == null then
+				print("Cannot access passwd file")
+				return null
+			end if
+			if decypher then 
+				print(decrypt_file(passwd_file.get_content))
+			else
+				print(passwd_file.get_content)
+			end if
+			
+
+		else if argv[0]=="mail" then
+			source_directory= get_source_directory(outer.file)
+			for source_dir_folder in source_directory.get_folders
+				if source_dir_folder.name == "home" then home_dir = source_dir_folder
+			end for
+			parsed_files_amount = 0
+			print("Found users in home folder.")
+			for user_folder in home_dir.get_folders
+				if user_folder.name != "guest" and  user_folder.name != "root" then
+					parsed_file = parse_user_folder(user_folder,"Mail.txt")
+					if parsed_file != null then
+						parsed_files_amount = parsed_files_amount + 1
+						if decypher then 
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Mail.txt\n" + decrypt_file(parsed_file.get_content) + "-"*15) 
+						else
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Mail.txt\n" + parsed_file.get_content + "-"*15) 
+						end if
+					end if
+				end if
+			end for
+
+			
+		else if argv[0]=="bank" then
+			source_directory= get_source_directory(outer.file)
+			for source_dir_folder in source_directory.get_folders
+				if source_dir_folder.name == "home" then home_dir = source_dir_folder
+			end for
+			parsed_files_amount = 0
+			for user_folder in home_dir.get_folders
+				if user_folder.name != "guest" and  user_folder.name != "root" then
+					parsed_file = parse_user_folder(user_folder,"Bank.txt")
+					if parsed_file != null then
+						parsed_files_amount = parsed_files_amount + 1
+						if decypher then 
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Bank.txt\n" + decrypt_file(parsed_file.get_content) + "-"*15) 
+						else
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Bank.txt\n" + parsed_file.get_content + "-"*15) 
+						end if
+					end if
+				end if
+			end for
+		end if
+	end function
+	action = { 1:@help,2:@ls,3:@cat,4:@rm,5:@cd,6:@getpass }
+	
 	while true
-		user_action = user_input(file.path + "@File>")
+		user_action = user_input("<b>" + file.path + "@Filesystem></b>")
 		if user_action == "exit" then break
 		if file == null then
 			print("File was deleted, now you can only exit")
@@ -100,14 +275,11 @@ handle_file_payload = function(file)
 		user_action = user_action.split(" ") 
 		user_action_index = action_index(user_action[0])
 		user_action.pull //Removes argument name and now it is an array of function args
+		argv = user_action
 		if user_action_index != null then
-			if user_action_index == action_index("passwd") and user_action.len == 2 then
-				action[user_action_index](user_action[0],user_action[1])
-			else
-				action[user_action_index]
-			end if
+			action[user_action_index](argv)
 		else 
-			print("Unknown command, type help for help.")
+			print("Unknown command, type <b>help</b> for help.")
 		end if
 	end while
 end function
@@ -186,17 +358,19 @@ handle_payload = function(metaLib,vulnerability)
 		metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name,user_input("New password:"))
 	end if
 end function
+//-----------------------------------------------
 
-//СТАРТ ПРОГРАММЫ
+//PROGRAM START
 if not get_shell.host_computer.is_network_active then exit("No internet access.")
 
 //Подключение библиотеки
 metaxploit = load_metaxploit
+cryptools = load_cryptools
 
 //Обработка параметров сканера уязвимостей в сетевых библиотеках
 address = null
 port = null
-
+additional_parameter = null
 if params.len > 1 then exit("You need to provide an address of the machine that will be Porthacked. Or start it without params to crack localy.")
 
 if params.len == 1 then
@@ -219,11 +393,15 @@ if params.len == 1 then
 		if typeof(ports) == "string" then exit(ports)
 	
 	//Выводим все порты, которые можно взломать
-	info = "PORT STATUS LIBRARY VERSION IP\n"
-	net_session = metaxploit.net_use( address )
-	if not net_session then exit("Ip address not found.")
-	metaLib = net_session.dump_lib
-	info = info + "0: open " + metaLib.lib_name + " " + metaLib.version + " " + address
+	info = "PORT STATUS LIBRARY VERSION IP"
+	
+	while true //THIS WHILE IS TO JUST MAKE BREAK FROM IT, IT WORKS ONLY ONCE
+		net_session = metaxploit.net_use( address )
+		if not net_session then break
+		metaLib = net_session.dump_lib
+		info = info + "\n0: open " + metaLib.lib_name + " " + metaLib.version + " " + address
+		break
+	end while
 	ports_list = [0]
 	for port in ports
 		ports_list.push(port.port_number)
@@ -263,6 +441,7 @@ if params.len == 1 then
 			print("Port not in list, try again")
 		end if
 	end while
+	if port == 0 then additional_parameter = user_input("<b>Specify LAN address for a bounce attack:</b>")
 	else 
 		exit("Incorrect IP address")
 	end if
@@ -309,14 +488,18 @@ for itemMem in listMem
 			vulnerability = new Vulnerability
 			vulnerability.memory_address = itemMem
 			vulnerability.variable_name = string[string.indexOf(">")+1:string.indexOf("</")]
-			vulnerability.type = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name)
+			if additional_parameter != null then
+				vulnerability.type = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name,additional_parameter )
+			else 
+				vulnerability.type = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name)
+			end if
 			if typeof(vulnerability.type) != "null" then
 				text_color = "<color=green>"
 				vulnerabilities_list.push(vulnerability)
 			else
 				text_color = "<color=red>"
 			end if
-			print(text_color+variables_parsed +": " + vulnerability.memory_address + " " + vulnerability.variable_name + " " + typeof(vulnerability.type)+"</color>\n")
+			print(text_color + variables_parsed + ": " + vulnerability.memory_address + " " + vulnerability.variable_name + " " + typeof(vulnerability.type)+"</color>\n")
 			variables_parsed = variables_parsed + 1
 		end if 
 	end for
@@ -335,4 +518,5 @@ while user_input_value != 0
 		handle_payload(metaLib,vulnerabilities_list[user_input_value-1])
 	end if
 end while
+
 
