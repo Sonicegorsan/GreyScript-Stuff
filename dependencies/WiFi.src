@@ -1,0 +1,43 @@
+monitor_mode_check = function(cryptools,device)
+	result = cryptools.airmon("start", device)
+	cryptools.airmon("stop", device)
+	if typeof(result) != "string" and result then 
+		return true
+	else 
+		return false
+	end if
+end function
+
+get_netcard_with_monitor_mode = function(cryptools,network_devices)
+	for device in network_devices.split(char(10))
+		//Don't rely on just boolean logic, index may be 0 and then code won't be executed, so directly specify null
+		if device.indexOf("wlan") != null and monitor_mode_check(cryptools,device.split(" ")[0]) then 
+			net_card_with_monitor_mode = device.split(" ")[0]
+			return net_card_with_monitor_mode
+		end if
+	end for
+	return null
+end function
+
+//Selection sort moment
+sort_networks = function(networks)
+	i = 0
+    while i < networks.len - 1
+        min_idx = i;
+		j = i + 1
+        while j < networks.len
+			  if networks[j].split(" ")[1][:-1].to_int < networks[min_idx].split(" ")[1][:-1].to_int then
+                min_idx = j;
+			end if
+			j = j + 1
+		end while
+ 
+        if min_idx != i then
+			tmp = networks[min_idx]
+			networks[min_idx] = networks[i]
+			networks[i] = tmp
+		end if
+		i = i + 1
+	end while
+
+end function

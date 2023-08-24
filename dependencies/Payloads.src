@@ -1,0 +1,349 @@
+handle_computer_payload = function(computer,cryptools)
+	help = function(placeholder)
+		print( 
+		"<b>help - show this message\n" +
+		"<b>ports - show all active ports\n" +
+		"<b>ps - show all system proceses\n" +
+		"<b>kill [PID] - stops process with given PID\n" +
+		"<b>passwd [username] [password] - change password (root required)\n" +
+		"<b>file [absolute_path_to_file] - gives you the File object with actions interpreter to it\n" +
+		"<b>filesystem - / directory shortcut\n" +
+		"<b>exit - exit computer payload</b>" )
+	end function
+
+	ports = function(placeholder)
+		for port in computer.get_ports
+			print("<b>" + port.port_number + ") " + get_port_status(port) + " " + port.get_lan_ip + "</b>")
+		end for
+	end function
+
+	ps = function(placeholder)
+		print(format_columns(computer.show_procs))
+	end function
+
+	kill = function(argv)
+		if argv.len != 1 then 
+			print_error("Wrong amount of arguments.")
+			return null
+		end if	
+		result = computer.close_program(argv[0].to_int)
+		if typeof(result) == "string" then
+			print("<b>" + result)
+		else if result then
+			print("<b>Program closed successfully")
+		end if
+	end function
+
+	passwd = function(argv) 
+		if argv.len != 2 then
+			print_error("Wrong amount of arguments.")
+			return null
+		end if
+		
+		if computer.change_password(argv[0],argv[1]) then 
+			print("<color=green><b>" + argv[0] + " password was successfuly changed to: " + argv[1] + "</b></color>")
+		else 
+			print("<color=red><b>You don't have needed priviliges to do that</b></color>")
+		end if
+	end function
+
+	file = function(argv)
+		if argv.len != 1 then
+			print_error("Wrong amount of arguments.")
+			retunr null
+		end if
+
+		file = computer.File(argv[0])
+		if file then
+			handle_file_payload(file,cryptools)
+		else
+			print("<b>File does not exist.")
+		end if
+	end function
+
+	filesystem = function(argv)
+		file = computer.File("/")
+		if file then
+			handle_file_payload(file,cryptools)
+		else
+			print_error("Filesystem start failed.")
+		end if
+
+	end function
+
+	commands_list = { "help":@help,"ports":@ports,"ps":@ps,"kill":@kill,"passwd":@passwd,"file":@file,"filesystem":@filesystem }
+	while true
+		user_command = user_input("<b>" + computer.public_ip + "@Computer>").split(" ") 
+
+		if user_command[0] == "exit" then break
+
+		if commands_list.hasIndex(user_command[0]) then
+			commands_list[user_command[0]](user_command[1:])
+		else 
+			print_error("Unknown command, type help for help.")
+		end if
+	end while
+end function
+
+handle_file_payload = function(file,cryptools)
+
+	// show_file_info = function()
+	// 	show_condition = function(condition)
+	// 		if condition then return "<color=green><b>True</b></color>"
+	// 		if not condition then return "<color=red><b>False</b></color>"
+	// 	end function
+	// 	print("Binary: " + show_condition(file.is_binary))
+	// 	print("Folder: " + show_condition(file.is_folder))
+	// 	print("Path: " + file.path)
+	// end function
+
+	parse_file = function(file_name)
+		files_in_folder = file.get_files
+		for object in files_in_folder
+			if object.name == file_name then return object
+		end for
+		return null
+	end function
+
+	help = function(argv)
+		print( "<b>help</b> - show this message" )
+		print( "<b>exit</b> - exit file payload")
+		print( "<b>ls</b> - show file content (files if folder/content if file)")
+		print( "<b>cat (-d optional for decryption) [file]</b> - show file content")
+		print( "<b>rm [file]</b> - delete file")
+		print( "<b>cd [folder]</b> - change currnet file (works with all files)")
+		print( "<b>getpass (-u optional for undecrypted) [mail/bank/passwd]<b> - shows all bank/mail/passwd files in decrypted view")
+	end function
+
+	ls = function(argv)
+		if not file.is_folder then 
+			print_error("File object isn't a folder.")
+			return null
+		end if
+
+		print("<b>Folder contains: ")
+		objects_in_folder = file.get_files
+		objects_in_folder = objects_in_folder + file.get_folders
+		for object in objects_in_folder
+			if object.is_folder then
+				print("<color=orange><b>"+object.name+"/</color></b>")
+			else
+				print("<color=yellow><b>"+object.name+"</color></b>")
+			end if
+		end for
+	end function
+	
+	cat = function(argv)
+		if argv.len < 1 then
+			print_error("Not enough arguments.")
+			return null
+		else if argv.len > 2 then
+			print_error("Too many arguments.") 
+			return null
+		end if
+	
+		target_file = null
+		if argv.hasIndex("-d") then
+			if argv.indexOf("-d") == 0 then
+				target_file = parse_file(argv[1])
+			else if argv.indexOf("-d") == 1 then
+				target_file = parse_file(argv[0])
+			end if
+		else
+			target_file = parse_file(argv[0])
+		end if
+		
+		if not target_file then 
+			print_error("File not found.")
+			return null
+		else
+			if argv.hasIndex("-d") then
+				if cryptools then
+					print(decrypt_file(cryptools,target_file.get_content))
+				else
+					print("<b>Error: cryptools library not found")
+					print("<b>" + target_file.get_content)
+				end if
+			else 
+				print("<b>" + target_file.get_content)
+			end if
+		end if
+
+		// else if not target_file.has_permission("r") then 
+		// 	print("You don't have access to this file")
+		// 	return null
+		// else if target_file.is_binary then
+		// 	print("Can't show content of a binary file")
+		// 	return null
+		// else if decrypt then 
+		// 	print(decrypt_file(target_file.get_content))
+	end function
+
+	rm = function(argv)
+		if argv.len != 1 then
+			print_error("Not enough arguments")
+			return null
+		end if
+
+		print("<b>" + file.delete())
+	end function
+	
+	cd = function(argv)
+		if argv.len == 0 then
+			print_error("Not enough arguments.")
+			return null
+		end if
+		path = argv[0]
+		if path == ".." and file.path != "/" then			
+			outer.file = file.parent
+			return null
+		else
+			objects_in_folder = file.get_folders
+			for new_file in objects_in_folder
+				if new_file.name == path or (new_file.name + "/") == path or new_file.name[:path.len] == path then
+					outer.file = new_file
+				end if
+			end for
+		end if
+			
+	end function
+
+	getpass = function(argv)
+	
+		get_source_directory = function(file)
+			while file.path != "/"
+				file = file.parent
+			end while
+			return file
+		end function
+
+		parse_user_folder = function(file_object,parsing_file_name)
+			for user_folder_content in file_object.get_folders
+				if user_folder_content.name == "Config" then confing_folder = user_folder_content
+			end for
+			for confing_folder_content in confing_folder.get_files
+				if confing_folder_content.name == parsing_file_name then parsed_file = confing_folder_content
+			end for
+			return parsed_file
+		end function	
+
+		decypher = true
+		if argv.len > 2 or (argv[0] == "-u" and argv.len != 2) then 
+			print_error("Wrong arguments amount.")
+			return null
+		else if argv[0] == "-u" and argv.len == 2 then
+			decypher = false
+			argv[0] = argv[1]
+		end if
+		
+		if argv[0] != "mail" and argv[0] != "bank" and argv[0] != "passwd" then
+			print_error("Wrong argument name,should be mail/bank/passwd.")
+			return null
+		end if
+
+		if argv[0]=="passwd" then
+			source_directory = get_source_directory(outer.file)
+			for source_dir_folder in source_directory.get_folders
+				if source_dir_folder.name == "etc" then etc_folder = source_dir_folder
+			end for
+			remembered_file = outer.file
+			outer.file = etc_folder //parse_file only works with file that was passed to handler function,so we need to temporary replace our file object with /etc/ folder file object
+			passwd_file = parse_file("passwd")	
+			outer.file = remembered_file
+			if passwd_file.get_content == null then
+				print_error("Cannot access passwd file")
+				return null
+			end if
+			if decypher then 
+				print(decrypt_file(passwd_file.get_content))
+			else
+				print(passwd_file.get_content)
+			end if
+			
+
+		else if argv[0]=="mail" then
+			source_directory= get_source_directory(outer.file)
+			for source_dir_folder in source_directory.get_folders
+				if source_dir_folder.name == "home" then home_dir = source_dir_folder
+			end for
+			parsed_files_amount = 0
+			print("Found users in home folder.")
+			for user_folder in home_dir.get_folders
+				if user_folder.name != "guest" and  user_folder.name != "root" then
+					parsed_file = parse_user_folder(user_folder,"Mail.txt")
+					if parsed_file != null then
+						parsed_files_amount = parsed_files_amount + 1
+						if decypher then 
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Mail.txt\n" + decrypt_file(parsed_file.get_content) + "-"*15) 
+						else
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Mail.txt\n" + parsed_file.get_content + "-"*15) 
+						end if
+					end if
+				end if
+			end for
+
+			
+		else if argv[0]=="bank" then
+			source_directory= get_source_directory(outer.file)
+			for source_dir_folder in source_directory.get_folders
+				if source_dir_folder.name == "home" then home_dir = source_dir_folder
+			end for
+			parsed_files_amount = 0
+			for user_folder in home_dir.get_folders
+				if user_folder.name != "guest" and  user_folder.name != "root" then
+					parsed_file = parse_user_folder(user_folder,"Bank.txt")
+					if parsed_file != null then
+						parsed_files_amount = parsed_files_amount + 1
+						if decypher then 
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Bank.txt\n" + decrypt_file(parsed_file.get_content) + "-"*15) 
+						else
+							print("-"*15 + "\n" + parsed_files_amount + ")" + user_folder.name + " Bank.txt\n" + parsed_file.get_content + "-"*15) 
+						end if
+					end if
+				end if
+			end for
+		end if
+	end function
+	commands_list = { "help":@help,"ls":@ls,"cat":@cat,"rm":@rm,"cd":@cd,"getpass":@getpass }
+	
+	while true
+		user_action = user_input("<b>" + file.path + "@Filesystem></b>").split(" ")
+
+		if user_action[0] == "exit" then break
+
+		if not file then
+			print("<b>File was deleted, now you can only exit.")
+			continue
+		end if
+
+		if commands_list.hasIndex(user_action[0]) then
+			commands_list[user_action[0]](user_action[1:])
+		else 
+			print("<b>Unknown command, type help for commands list.")
+		end if
+	end while
+end function
+
+
+handle_payload = function(metaLib,vulnerability,cryptools)
+    if typeof(vulnerability.vulnerability_object) == "shell" then 
+		while true
+			print("<b>1) Start up a shell")
+			print("<b>2) Launch PortHack on hacked machine")
+	 		selected_option = user_input("<b>Select number:")
+			if selected_option == "1" then vulnerability.vulnerability_object.start_terminal
+			if selected_option == "2" then
+				get_shell.scp(launch_path,"/home/guest",vulnerability.vulnerability_object)
+				vulnerability.vulnerability_object.launch("/home/guest/PortHack")
+				porthack_file = vulnerability.vulnerability_object.host_computer.File("/home/guest/PortHack")
+				if porthack_file then
+					porthack_file.delete
+				end if
+			end if
+		end while
+	end if
+
+	if typeof(vulnerability.vulnerability_object) == "computer" then handle_computer_payload(vulnerability.vulnerability_object,cryptools)
+    if typeof(vulnerability.vulnerability_object) == "file" then handle_file_payload(vulnerability.vulnerability_object,cryptools)
+    if typeof(vulnerability.vulnerability_object) == "number" then metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name,user_input("New password:"))
+end function

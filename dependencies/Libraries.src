@@ -1,0 +1,33 @@
+get_library = function(libname,bNecessary)
+    library = include_lib("/lib/" + libname + ".so")
+    if not library then
+        library = include_lib(current_path + "/" + libname + ".so")
+    end if
+    if not library and bNecessary then
+        exit("Error: Cannot find library """+libname+""" in lib folder and local folder.")
+    end if
+    return library
+end function
+
+get_library_version = function(libname,metaxploit)
+    library = metaxploit.load("/lib/" + libname + ".so")
+
+    if not library then library = metaxploit.load(current_path + "/" + libname + ".so")
+
+    if library then
+        return library.version
+    end if
+end function
+
+is_library_newer = function(first_version,second_version)
+    splited_first_version = first_version.split(".")
+    splited_second_version = second_version.split(".")
+    
+    rank_counter = 0
+    for first_version_rank in splited_first_version
+        if first_version_rank > splited_second_version[rank_counter] then return true
+        rank_counter = rank_counter + 1
+    end for
+
+    return false
+end function

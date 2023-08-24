@@ -1,0 +1,3 @@
+print_error = function(text)
+    print("<b><color=red>Error</color>: " + text)
+end function

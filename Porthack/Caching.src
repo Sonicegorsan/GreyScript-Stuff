@@ -1,0 +1,59 @@
+initialize_cache_file = function(custom_object)
+    if not custom_object.hasIndex("cache_file") then
+        custom_object.cache_file = get_shell.host_computer.File(home_dir + "/Config/PortHack/cache.txt")
+
+        if not custom_object.cache_file then
+            get_shell.host_computer.create_folder(home_dir + "/Config","PortHack")
+            custom_object.cache_file = get_shell.host_computer.touch(home_dir + "/Config/PortHack","cache.txt")
+        end if
+    end if
+
+end function
+
+cache_vulnerabilities = function(metaLib,vulnerabilities_list,custom_object)
+    if not custom_object.hasIndex("cache_file") then return "Missing cache file in custom object"
+
+    cache_string = metaLib.lib_name + " " + metaLib.version + " " + custom_object.metaxploit_version
+
+    for vulnerability in vulnerabilities_list
+        cache_string = cache_string + " " + vulnerability.memory_address + "@" + vulnerability.variable_name 
+    end for
+
+    file_content = custom_object.cache_file.get_content
+    parsed_content = file_content.split(char(10))
+    if parsed_content[0] == "" then parsed_content.remove(0)
+    print(parsed_content)
+
+    parse_counter = 0
+    cache_hit = false
+    for content_line in parsed_content
+        if content_line.indexOf(metaLib.lib_name + " " + metaLib.version) != null then
+            cache_hit = true
+            break
+        end if
+        parse_counter = parse_counter + 1
+    end for
+
+    if cache_hit then
+        print("REPLACING")
+        parsed_content.remove(parse_counter)
+        parsed_content.insert(parse_counter,cache_string)
+        print(parsed_content)
+    else
+        print("PUSHING")
+        parsed_content.push(cache_string)
+        print(parsed_content)
+    end if
+
+    custom_object.cache_file.set_content(parsed_content.join(char(10)))
+end function
+
+get_vulnerability_cache_data = function(metaLib,custom_object)
+    if not custom_object.hasIndex("cache_file") then return "Missing cache file in custom object"
+
+    for vulnerability_string in custom_object.cache_file.get_content.split(char(10))
+        splited_string = vulnerability_string.split(" ")
+        if splited_string[0] == metaLib.lib_name and splited_string[1] == metaLib.version then return splited_string
+    end for
+    return null
+end function

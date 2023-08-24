@@ -1,0 +1,282 @@
+remote_use = function(address,metaxploit,cryptools)
+
+    router = get_router_s(address)
+	if not router then 
+		print_error("IP address not found.")
+		return
+	end if
+
+	//TEST
+	print(router.firewall_rules)
+
+	port_list = "<b>PORT STATUS LIBRARY VERSION IP</b>"
+	active_ports_list = create_port_list(address,metaxploit)
+	for port in active_ports_list 
+		port_list = port_list + "\n<b>" + port["value"] + "</b>"
+	end for
+
+	//Text formatting
+	port_list = format_columns(port_list)
+	painted_port_list = ""
+	for str in port_list.split(char(10))
+		if str.indexOf("PORT") != null then str = "<color=yellow>"+str+"</color>"
+		if str.indexOf("open") != null then str = str.replace("open","<color=green>open</color>") 
+		if str.indexOf("firewall") != null then str = str.replace("firewall","<color=orange>firewall</color>") 
+		if str.indexOf("closed") != null then str = str.replace("closed","<color=red>closed</color>") 
+		painted_port_list = painted_port_list + str
+	end for
+
+    while true
+    	print(painted_port_list)
+
+		//Attacked port selection
+		while true
+			attacked_port = user_input("<b>Choose port service to crack or type exit to quit: ").to_int
+            if attacked_port == "exit" then 
+                return
+            else if active_ports_list.hasIndex(attacked_port) then
+				break
+			else 
+				print_error("Port not in list, try again.")
+			end if
+		end while
+
+        //Bounce attack handler
+		additional_parameter = router.local_ip
+		if attacked_port == 0 then 
+			bounce_attack_devices = get_lan_childerns(router)
+			while true
+				print("<b>0) None</b>")
+				bounce_attack_device_counter = 0
+				for device in bounce_attack_devices
+					print("<b>" + (bounce_attack_device_counter+1) + ") " + device + "</b>")
+					bounce_attack_device_counter = bounce_attack_device_counter + 1
+				end for
+				selected_option = user_input("<b>Choose number: ")
+				if selected_option == "0" then
+					break
+				else if bounce_attack_devices.hasIndex(selected_option.to_int-1) then
+					additional_parameter = bounce_attack_devices[selected_option.to_int-1]
+					break
+				else
+					print_error("Incorrect option selected, try again.")
+				end if
+			end while
+		end if
+
+		net_session = metaxploit.net_use( address,attacked_port )
+		if not net_session then 
+			print_error("Can't connect to net session.")
+			return
+		end if
+
+		metaLib = net_session.dump_lib
+
+        //Service unique abilities handler
+        if metaLib.lib_name == "libsmtp.so" then
+            while true
+                print("<b>0) Exit</b>")
+                print("<b>1) Check SMTP user list</b>")
+                print("<b>2) Show vulnerabilities</b>")
+                selected_number = user_input("<b>Choose what to do with SMTP service: </b>")
+                if selected_number == "0" then
+                    break                 
+                else if selected_number == "1" then
+                    smtp_result = cryptools.smtp_user_list(address, attacked_port) 
+                    if typeof(smtp_result) == "string" then
+                        print_error(smtp_result)
+                    else
+                        for user in smtp_result
+                            print("<b>" + user)
+                        end for
+                    end if
+                else if selected_number == "2" then
+		            vulnerabilities_list = create_sorted_vulnerabilities_list(metaLib,additional_parameter)	
+            		vulnerabilities_handler(metaLib,vulnerabilities_list)
+                else 
+			        print_error("Invalid selected value, try again.")
+                end if
+            end while
+        else
+			cache_list = get_vulnerability_cache_data(metaLib,get_custom_object())
+			if typeof(cache_list) == "list" then
+				if is_library_newer(cache_list[2], get_custom_object().metaxploit_version) then
+					while true
+						user_input("<b>Cache contains record with older version of metaxploit, do you want to rescan?(y/n)")	
+						if choosen_option == "y" then
+							vulnerabilities_list = create_sorted_vulnerabilities_list(metaLib,additional_parameter,get_custom_object().metaxploit)	
+							cache_vulnerabilities(metaLib,vulnerabilities_list,get_custom_object().metaxploit)
+							break
+						end if
+						if choosen_option == "n" then
+							vulnerabilities_list = reconstruct_vulnerabilities_list_from_cache(metaLib,cache_list[3:],additional_parameter)
+							break
+						else
+							print_error("Incorrect optiont, try again.")
+						end if
+					end while
+				else
+					vulnerabilities_list = reconstruct_vulnerabilities_list_from_cache(metaLib,cache_list[3:],additional_parameter)
+				end if
+			else
+		    	vulnerabilities_list = create_sorted_vulnerabilities_list(metaLib,additional_parameter,get_custom_object().metaxploit)
+				result = cache_vulnerabilities(metaLib,vulnerabilities_list,get_custom_object().metaxploit)
+				if typeof(result) == "string" then
+					print(result)
+				end if
+			end if
+			
+		    vulnerabilities_handler(metaLib,vulnerabilities_list)
+        end if
+    end while
+end function
+
+
+local_privilege_escalation = function(metaxploit)
+	// local_libraries = [ "kernel_module.so","router_module.so","init.so","net.so","crypto.so","blockchain.so","aptclient.so","metaxploit.so" ]
+	// found_libraries = []
+
+	//Library probe (Interesting question, is it possible to make a file /lib, get it's folder and from it use non hardcoded libraries?)
+	// for library in local_libraries
+	// 	if get_shell.host_computer.File("/lib/" + library) then
+	// 		found_libraries.push(library)
+	// 		print(found_libraries.len()+1 + ": " + library)
+	// 	end if
+	// end for
+
+	libraries = get_shell.host_computer.File("/lib").get_files
+	library_counter = 0
+	for library in libraries
+		print("<b>" + (library_counter + 1) + ") " + library.name + " " + metaxploit.load(library.path).version + "</b>")
+		library_counter = library_counter + 1
+	end for
+
+	while true
+		library_index = user_input("<b>Choose library index to crack: </b>").to_int
+		if libraries.hasIndex(library_index-1) then 
+			break
+		else 
+			print("Error: index out of range,try again")
+		end if
+	end while
+
+	metaLib = metaxploit.load(libraries[library_index-1].path)
+	vulnerabilities_list = create_sorted_vulnerabilities_list(metaLib)	
+	vulnerabilities_handler(metaLib,vulnerabilities_list)
+	
+end function
+
+wi_fi_crack_menu = function(cryptools)
+	while true
+		print("<b>0) Exit</b>")
+		print("<b>1) Create Wi-Fi Crack File</b>")
+		print("<b>2) Load Wi-Fi Crack File </b>")
+		selected_option = user_input("<b>Choose option: ")
+		if selected_option == "0" then 
+			return
+		else if selected_option == "1" then
+			wi_fi_crack_file_create(cryptools)
+		else if selected_option == "2" then
+			wi_fi_crack_file_load(cryptools)
+		else
+			print_error("Invalid selected value, try again.")
+		end if
+	end while
+	
+end function
+
+wi_fi_crack_file_create = function(cryptools)
+	devices = get_shell.host_computer.network_devices
+
+	if not devices then 
+		print_error("Network devices not found.")
+		return
+	end if
+
+	net_card_with_monitor_mode = get_netcard_with_monitor_mode(cryptools,devices)
+
+	if not net_card_with_monitor_mode then
+		print_error("Cannot find network card with monitor mode.")
+		return
+	end if
+	
+	cryptools.airmon("start", net_card_with_monitor_mode)
+	
+	networks = get_shell.host_computer.wifi_networks(net_card_with_monitor_mode)
+	sort_networks(networks)
+	networks.reverse()
+	
+	while true
+		networks_counter = 0
+		network_printable_list = ""
+
+		print("<b>Network list:</b>")
+		print("<b>0)  Exit</b>")
+
+		for network in networks
+			splited_network = network.split(" ")
+			network_printable_list = network_printable_list + "<b>" + (networks_counter+1) + ") " + splited_network[2] + " " + splited_network[1] + " " + splited_network[0] + "</b>\n"
+			networks_counter = networks_counter + 1
+		end for
+
+		network_printable_list = format_columns(network_printable_list)
+        print(network_printable_list)
+
+		user_input_value = user_input("<b>Select number: ").to_int
+		if user_input_value == 0 then
+            break
+		else if networks.hasIndex(user_input_value-1) then
+			result = cryptools.aireplay(splited_network[0], splited_network[2])
+			if result then print(result)
+		end if
+	end while
+	
+end function
+
+wi_fi_crack_file_load = function(cryptools)
+	wi_fi_crack_file = get_shell.host_computer.File("file.cap")
+
+	if wi_fi_crack_file then
+		while true
+			choosen_option = user_input("<b>file.cap file found in program directory, do you want to use it? (y/n): ")
+			if choosen_option == "y" then
+				break
+			end if
+			if choosen_option == "n" then
+				wi_fi_crack_file = null
+				break
+			else
+				print_error("Incorrect optiont, try again.")
+			end if
+		end while
+	end if
+	
+	while not wi_fi_crack_file
+		wi_fi_crack_file_path = user_input("<b>Enter Wi-Fi Crack File absolute path, or type exit to quit: ")
+		if wi_fi_crack_file_path == "exit" then
+			break
+		end if
+		wi_fi_crack_file = get_shell.host_computer.File(wi_fi_crack_file_path)
+		if not wi_fi_crack_file then
+			print_error("Wi-Fi Crack File not found, try again.")
+		else
+			break
+		end if
+	end while
+	
+	if wi_fi_crack_file then
+   		key = cryptools.aircrack(wi_fi_crack_file.path)
+		if key then
+			print("<b>Wi-Fi password: " + key + "</b>")
+		end if
+	end if
+end function
+
+lan_scanner = function()
+	router = get_router()
+	lan_tree = create_lan_tree(router.local_ip)
+	for node in lan_tree 
+		print(node)
+	end for
+	user_input("<b>Press enter to continue</b>")
+end function

@@ -1,0 +1,154 @@
+Vulnerability = { "memory_address":null,"variable_name":null,"vulnerability_object":null }
+
+Vulnerability.get_viewable_type = function()
+	if typeof(self.vulnerability_object) == "shell" then
+		return "Shell"
+	else if typeof(self.vulnerability_object) == "computer" then
+		return "Computer"
+	else if typeof(self.vulnerability_object) == "file" then
+		return "Filesystem"
+	else if typeof(self.vulnerability_object) == "number" then
+		return "Universal"
+	else if typeof(self.vulnerability_object) == "null" then
+		return "Failed"
+end function
+
+//Purpose of this function is just to create an organized list of all vulnerabilities, because bounce exploits return null if they are failed, and they cannot be distinguished after that, this means that additional parameter is a must, also password exploit will be null it you don't provide password, but will provide number if 
+create_sorted_vulnerabilities_list = function(metaLib,additional_parameter = "192.168.0.1",metaxploit)
+	memory_addresses = metaxploit.scan(metaLib)
+	shell_vulnerabilities_list = []
+	computer_vulnerabilities_list = []
+	filesystem_vulnerabilities_list = []
+	number_vulnerabilities_list = []
+	unexploitable_vulnerabilities_list = []
+
+	for mem_address in memory_addresses
+		scan_text = metaxploit.scan_address(metaLib, mem_address)
+		for string in scan_text.split(char(10))
+			if string.indexOf("Unsafe check") != null and string.indexOf("<") != null then
+				//Vulnerability object initilization
+				vulnerability = new Vulnerability
+				vulnerability.memory_address = mem_address
+				vulnerability.variable_name = string[string.indexOf(">")+1:string.indexOf("</")]
+                vulnerability.vulnerability_object = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name,additional_parameter)
+
+				if typeof(vulnerability.vulnerability_object) == "shell" then 
+					shell_vulnerabilities_list.push(vulnerability)
+				else if typeof(vulnerability.vulnerability_object) == "computer" then
+					computer_vulnerabilities_list.push(vulnerability)
+				else if typeof(vulnerability.vulnerability_object) == "file" then
+					filesystem_vulnerabilities_list.push(vulnerability)
+				else if typeof(vulnerability.vulnerability_object) == "number" then
+					number_vulnerabilities_list.push(vulnerability)
+				else 
+					unexploitable_vulnerabilities_list.push(vulnerability)
+				end if
+			end if 
+		end for
+	end for
+	return shell_vulnerabilities_list + computer_vulnerabilities_list + filesystem_vulnerabilities_list + number_vulnerabilities_list + unexploitable_vulnerabilities_list
+	// for mem_address in memory_addresses
+	// 	scan_text = metaxploit.scan_address(metaLib, mem_address)
+	// 	for string in scan_text.split(char(10))
+	// 		if string.indexOf("Unsafe check") and string.indexOf("<") then
+	// 			//Vulnerability object initilization
+	// 			vulnerability = new Vulnerability
+	// 			vulnerability.memory_address = mem_address
+	// 			vulnerability.variable_name = string[string.indexOf(">")+1:string.indexOf("</")]
+	// 			if bounce_address then vulnerability.type = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name,bounce_address )
+	// 			else vulnerability.type = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name)
+					
+	// 			//Basic output text color
+	// 			if typeof(vulnerability.type) then
+	// 				text_color = "<color=green>"
+	// 				exploitable_vulnerabilities_list.push(vulnerability)
+	// 			else
+	// 				text_color = "<color=red>"
+	// 			end if
+
+	// 			//Print basic vulnerability text
+	// 			print(text_color + parsed_vulnerabilities_counter + ": " + vulnerability.memory_address + " " + vulnerability.variable_name + " " + typeof(vulnerability.type)+"</color>\n")
+	// 			parsed_vulnerabilities_counter = parsed_vulnerabilities_counter + 1
+	// 		end if 
+	// 	end for
+	// end for
+end function
+
+unexploitable_vulnerabilities_handler = function(metaLib,unexploitable_vulnerabilities_list)
+	while true
+	    print("<b>Unexploitable vulnerabilities:")
+        print("<b>0)  Exit")
+	    printable_list = ""
+		unexploitable_vulnerabilities_counter = 0
+		for vuln in unexploitable_vulnerabilities_list
+			printable_list = printable_list + "<b>" + (unexploitable_vulnerabilities_counter + 1) + ") " + vuln.get_viewable_type() + " " +  vuln.memory_address + " " + vuln.variable_name + "</b>\n"
+            unexploitable_vulnerabilities_counter = unexploitable_vulnerabilities_counter + 1
+		end for
+        printable_list = format_columns(printable_list)
+        print(printable_list)
+		user_input_value = user_input("<b>Select number: ").to_int
+		if user_input_value == 0 then
+            break
+        else
+            if unexploitable_vulnerabilities_list.hasIndex(user_input_value-1) and typeof(unexploitable_vulnerabilities_list[user_input_value-1].vulnerability_object) == "null" then
+				metaLib.overflow(vuln.memory_address,vuln.variable_name)
+				user_input("<b>Continue?")
+            end if
+		end if
+	end while
+end function
+
+vulnerabilities_handler = function(metaLib,vulnerabilities_list)
+	while true
+	    print("<b>Exploitable vulnerabilities:")
+        print("<b>0)  Exit")
+	    printable_list = ""
+        exploitable_vulnerabilities_counter = 0
+		for vuln in vulnerabilities_list
+			if typeof(vuln.vulnerability_object) != "null" then
+				printable_list = printable_list + "<b>" + (exploitable_vulnerabilities_counter + 1) + ") " + vuln.get_viewable_type() + " "+ vuln.memory_address + " " + vuln.variable_name + "</b>\n"
+                exploitable_vulnerabilities_counter = exploitable_vulnerabilities_counter + 1
+			end if
+		end for
+        printable_list = format_columns(printable_list)
+        print(printable_list)
+        print("<b>" + (exploitable_vulnerabilities_counter+1) + ")  Watch unexploitable vulnerabilities needed conditions</b>")
+		user_input_value = user_input("<b>Select number: ").to_int
+		if user_input_value == 0 then
+            break
+        else if user_input_value == exploitable_vulnerabilities_counter+1 then
+            unexploitable_vulnerabilities_handler(metaLib,vulnerabilities_list[exploitable_vulnerabilities_counter:]) //Because all null vulns are at the end, we can just pass cutted part as a null vulns array
+        else if vulnerabilities_list.hasIndex(user_input_value-1) and typeof(vulnerabilities_list[user_input_value-1].vulnerability_object) != "null" then
+			    handle_payload(metaLib,vulnerabilities_list[user_input_value-1])
+		end if
+	end while
+end function
+
+reconstruct_vulnerabilities_list_from_cache = function(metaLib,cache_vulnerabilities_list,additional_parameter = "192.168.0.1")
+	shell_vulnerabilities_list = []
+	computer_vulnerabilities_list = []
+	filesystem_vulnerabilities_list = []
+	number_vulnerabilities_list = []
+	unexploitable_vulnerabilities_list = []
+
+	for cache_data in cache_vulnerabilities_list
+		vulnerability = new Vulnerability
+
+		vulnerability.memory_address = cache_data.split("@")[0]
+		vulnerability.variable_name = cache_data.split("@")[1]
+        vulnerability.vulnerability_object = metaLib.overflow(vulnerability.memory_address,vulnerability.variable_name,additional_parameter)
+
+		if typeof(vulnerability.vulnerability_object) == "shell" then 
+			shell_vulnerabilities_list.push(vulnerability)
+		else if typeof(vulnerability.vulnerability_object) == "computer" then
+			computer_vulnerabilities_list.push(vulnerability)
+		else if typeof(vulnerability.vulnerability_object) == "file" then
+			filesystem_vulnerabilities_list.push(vulnerability)
+		else if typeof(vulnerability.vulnerability_object) == "number" then
+			number_vulnerabilities_list.push(vulnerability)
+		else 
+			unexploitable_vulnerabilities_list.push(vulnerability)
+		end if
+	end for
+	return shell_vulnerabilities_list + computer_vulnerabilities_list + filesystem_vulnerabilities_list + number_vulnerabilities_list + unexploitable_vulnerabilities_list
+end function

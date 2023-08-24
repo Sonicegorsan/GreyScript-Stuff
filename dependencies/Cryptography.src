@@ -1,0 +1,31 @@
+is_valid_md5 = function(hash_string)
+	if hash_string.len != 32 then return false
+    
+    valid_characters = "0123456789abcdef"
+    for char in hash_string
+		char_is_valid = false
+        for valid_char in valid_characters
+            if char == valid_char then
+				char_is_valid = true
+			end if
+        end for
+		
+		if not char_is_valid then return false 
+    end for
+    
+    return true
+end function
+
+
+decrypt_file = function(content,cryptools)
+	info = ""
+	decrypted_strings_index = 0
+	for string in content.split(char(10))
+		split_string = string.split(":")
+		if split_string.len == 2 and is_valid_md5(split_string[1]) then
+			info = info + (decrypted_strings_index + 1) + ")" + split_string[0] + "@" + cryptools.decipher(split_string[1]) + "\n"
+			decrypted_strings_index = decrypted_strings_index + 1
+		end if
+	end for
+	return info
+end function

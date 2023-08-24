@@ -1,0 +1,107 @@
+internet_access_check = function(bNecessary)
+    condition = get_shell.host_computer.is_network_active
+    if not condition and bNecessary then exit("Error: No internet access.")
+    return condition
+end function
+
+get_router_s = function(address)
+    if is_lan_ip(address) then return get_router() else return get_router(address)
+end function
+
+get_ports_s = function(address)
+    if is_lan_ip(address) then return get_router_s(address).device_ports(address) else return get_router_s(address).used_ports
+end function
+
+obtain_open_ports_info = function(address)
+	if not is_valid_ip(address) then
+        return "Incorrectly typed IP address."
+    end if
+
+    ports = get_ports_s(address)
+		
+	if ports == null then return "Cannot obtain ports from router object."
+    return ports
+end function
+
+get_port_status = function(port)
+    if port.is_closed then 
+		return "closed"
+    else 
+		return "open"
+	end if
+        //I've never seen firewall part in action,so I it is now cuted untill I'll discower how tf it works
+		// if port_status != "closed" then
+		// 	net_session = metaxploit.net_use( address,port.port_number )
+		// 	if not net_session then 
+		// 		port_status = "firewall"
+		// 		service_info = router.port_info(port)
+		// 	end if
+		// end if
+end function
+
+get_port_service_info = function(address,port,metaxploit)
+    if not port.is_closed then
+    	net_session = metaxploit.net_use( address,port.port_number )
+        if net_session then 
+            metaLib = net_session.dump_lib
+        return metaLib.lib_name + " " + metaLib.version
+	    end if
+    end if
+	return get_router_s(address).port_info(port)
+end function
+
+create_port_list = function(address,metaxploit)
+	ports = obtain_open_ports_info(address)
+	active_ports_list = {}
+ 
+    //Router crack port addition
+	net_session = metaxploit.net_use( address )
+    if net_session then
+	    metaLib = net_session.dump_lib
+        active_ports_list[0] = "0) open " + metaLib.lib_name + " " + metaLib.version + " " + address 
+    end if
+
+    //Other ports addition
+	for port in ports
+        active_ports_list[port.port_number] = port.port_number + ") " + get_port_status(port) + " " + get_port_service_info(address,port,metaxploit) + " " + port.get_lan_ip
+	end for
+
+    return active_ports_list
+end function
+
+//It must be used from the top, else it will also contain all parents of this node object 
+get_lan_childerns = function(router)
+    children_list = router.devices_lan_ip
+    router_itself_index = children_list.indexOf(router.local_ip)
+    if router_itself_index != null then
+        children_list.remove(router_itself_index)
+    end if
+    return children_list
+end function
+
+create_lan_tree = function(ip_address,recursion_level = 0,parent_list = [])
+	output_list = []
+	
+	output_list.push("<b>|-" + "-"*3*recursion_level + ip_address)
+	router = get_router(ip_address)
+	if not router then
+		return output_list
+	end if
+
+    //remove all unnecessary parents
+	childern_devices_list = get_lan_childerns(router)
+    for parent in parent_list
+        parent_index = childern_devices_list.indexOf(parent)
+        if parent_index != null then
+            childern_devices_list.remove(parent_index)
+        end if
+    end for
+
+    passed_parent_list = parent_list[0:]
+    passed_parent_list.push(ip_address)
+
+	for children in childern_devices_list
+		output_list = output_list + create_lan_tree(children,recursion_level+1,passed_parent_list)
+	end for
+	return output_list
+end function
